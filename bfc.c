@@ -4,8 +4,8 @@
    james@incoherency.co.uk
   
    The compiler itself should be relatively portable, although the generated
-   code squarely targets CP/M. I think it only generates 8080 code but I have
-   not tested it on anything other than a Z80.
+   code squarely targets CP/M. I think it only generates 8080 code (a subset
+   of Z80) but I have not tested it on anything other than a Z80.
   
    Compile it within CP/M using the HI-TECH C Compiler:
    C>C -V E:BFC.C
