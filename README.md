@@ -1,6 +1,6 @@
 # A Semi-literate Brainfuck Compiler for CP/M
 
-## By James Stanley
+### By James Stanley
 
 In this repository you can find:
 
