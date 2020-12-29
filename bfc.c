@@ -393,6 +393,6 @@ int main(int argc, char **argv) {
     save(output_name);
     putchar('\n');
 
-    /* All done, great success! */
+    /* All done, great success. */
     return 0;
 }
