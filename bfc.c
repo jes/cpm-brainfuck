@@ -30,29 +30,10 @@
    for anything else so it doesn't hurt. */
 #define STACKSZ 1024
 
+/* Some global variables: */
+
 unsigned int *stack; /* stack for loop branch targets   */
 int sp;              /* index for next push on to stack */
-
-/* 30000 bytes of program memory is typical for Brainfuck interpreters.
-
-   The address space layout for the generated program will look like this:
-
-   +-------------+-----------------------+----------------------+-------------+-----+------+------+
-   | 0x00 - 0xff | code (unknown length) | memory (30000 bytes) | ... gap ... |  unknown - 0xffff |
-   +-------------+-----------------------+----------------------+-------------+-----+------+------+
-   | Low storage |                   Transient Program Area                   | CCP | BDOS | BIOS |
-   +-------------+------------------------------------------------------------+-------------------+
-
-   I wanted to offer all of the available memory in the Transient Program Area,
-   up to the start of the CCP, and while older versions of CP/M appeared to
-   offer a BDOS call which would report the base address of the CCP, there is
-   no such call available in CP/M 2.2 as far as I can tell, so we just stick
-   with the standard 30K bytes.
-
-   There is no bounds-checking on memory accesses, so in principle the entire
-   TPA *is* available to the generated program, but cells past 30000 will not
-   be zeroed in the preamble. */
-#define MEMSZ 30000
 
 FILE *src_fp; /* Program source code file pointer        */
 int src_char; /* The next character read from the source */
@@ -114,23 +95,45 @@ void emit(char c) {
 }
 
 /* The preamble goes at the very start of our generated program. It first
-   zeroes out 30K bytes of RAM starting at the end of the generated code,
-   and then initialises the memory pointer (stored in the hl register pair) to
-   point to the start of this block of 30K bytes.
+   zeroes out RAM starting at the end of the generated code and finishing at
+   the byte before the start of the BDOS. CP/M stores the BDOS start address in
+   address 0x0006 (thanks Graham!) so we copy the address from 0x0006 into the
+   bc register pair, initialise hl to point just past the end of our generated
+   program, and then loop up zeroing out the address in hl, until hl equals bc.
+
+   As part of this, we will zero out the CCP, but this is fine because it gets
+   restored by the BDOS when we jump to address 0 at the end.
+
+   The address space layout for the generated program will look like this:
+
+   +-------------+-----------------------+------------------------------------------+-------------+
+   | 0x00 - 0xff | code (unknown length) |      memory (zeroed by preamble)         |    - 0xffff |
+   +-------------+-----------------------+------------------------------------+-----+------+------+
+   |  Zero page  |                   Transient Program Area                   | CCP | BDOS | BIOS |
+   +-------------+------------------------------------------------------------+-------------------+
+
+   Note there is no bounds-checking on memory accesses.
 
    We can't yet generate bytes for $prog_size because we don't know how large
    the program will end up being, so we emit 0s for now, which will be
    corrected later. */
 void emit_preamble() {
-    emit(0x21); emit(0); emit(0);                 /* ld hl, $prog_size */
-    emit(0x11); emit(MEMSZ&0xff); emit(MEMSZ>>8); /* ld de, $MEMSZ     */
-    emit(0x36); emit(0);                          /* loop: ld (hl), 0  */
-    emit(0x23);                                   /* inc hl            */
-    emit(0x1b);                                   /* dec de            */
-    emit(0x7a);                                   /* ld a, d           */
-    emit(0xb3);                                   /* or e              */
-    emit(0xc2); emit(6); emit(1);                 /* jp nz, loop       */
-    emit(0x21); emit(0); emit(0);                 /* ld hl, $prog_size */
+    emit(0x26); emit(0);          /* ld h, 0 */
+    emit(0x2e); emit(6);          /* ld l, 6 */
+    emit(0x4e);                   /* ld c, (hl) */
+    emit(0x23);                   /* inc hl */
+    emit(0x46);                   /* ld b, (hl) */
+    emit(0x21); emit(0); emit(0); /* ld hl, $prog_size */
+    emit(0x36); emit(0);          /* loop: ld (hl), 0 */
+    emit(0x23);                   /* inc hl */
+    emit(0x7c);                   /* ld a, h */
+    emit(0x90);                   /* sub b */
+    emit(0x57);                   /* ld d, a */
+    emit(0x7d);                   /* ld a, l */
+    emit(0x91);                   /* sub c */
+    emit(0xb2);                   /* or d */
+    emit(0x20); emit(0xf5);       /* jr nz loop */
+    emit(0x21); emit(0); emit(0); /* ld hl, $prog_size */
 }
 
 /* The postamble goes at the very end of our generated program. All it does
@@ -146,10 +149,10 @@ void emit_preamble() {
    addresses for loops. */
 void emit_postamble() {
     emit(0xc3); emit(0); emit(0); /* jp 0 */
-    prog[1] = prog_size&0xff;
-    prog[2] = 1+(prog_size>>8);
-    prog[16] = prog_size&0xff;
-    prog[17] = 1+(prog_size>>8);
+    prog[8] = prog_size&0xff;
+    prog[9] = 1+(prog_size>>8);
+    prog[22] = prog_size&0xff;
+    prog[23] = 1+(prog_size>>8);
 }
 
 /* We use BDOS call number 1 to request a byte of input from the console.
